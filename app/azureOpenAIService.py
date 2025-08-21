@@ -35,17 +35,42 @@ def session_config():
         "tools": [
             {
                 "type": "function",
-                "name": "health_check",
-                "description": "Call the server to see if it is running",
+                "name": "get_ticket",
+                "description": "Get the ticket from the server",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "name": {
+                        "ticket_id": {
                             "type": "string",
-                            "description": "The name of the person requesting the health check"
+                            "description": "The id of the ticket to get"
                         }
                     },
-                    "required": ["name"]
+                    "required": ["ticket_id"]
+                }
+            },
+            {
+                "type": "function",
+                "name": "create_ticket",
+                "description": "Create a new ticket on the server",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "type": "string",
+                            "description": "The description of the ticket to create"
+                        }
+                    },
+                    "required": ["description"]
+                }
+            },
+            {
+                "type": "function",
+                "name": "end_call",
+                "description": "End the current phone call",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
                 }
             }
         ]
@@ -141,8 +166,20 @@ class OpenAIRTHandler():
             
             print(f"Function call received: {function_name} with call_id: {call_id}")
             
-            if function_name == "health_check":
-                result = await self.health_check_function(event.arguments)
+            try:
+                arguments = json.loads(event.arguments) if isinstance(event.arguments, str) else event.arguments
+            except json.JSONDecodeError:
+                print(f"Failed to parse arguments: {event.arguments}")
+                arguments = {}
+            
+            if function_name == "get_ticket":
+                result = await self.get_ticket_function(arguments)
+                await self.send_function_call_result(result, call_id)
+            elif function_name == "create_ticket":
+                result = await self.create_ticket_function(arguments)
+                await self.send_function_call_result(result, call_id)
+            elif function_name == "end_call":
+                result = await self.end_call_function(arguments)
                 await self.send_function_call_result(result, call_id)
             else:
                 error_result = f"Unknown function: {function_name}"
@@ -233,12 +270,36 @@ class OpenAIRTHandler():
 
 # OpenAI Functions
 
-    async def health_check_function(self, arguments):
-        """Execute the health_check function"""
+    async def get_ticket_function(self, arguments):
+        """Execute the get_ticket function"""
 
-        url = "https://webapp-acs-oai-dev-westu2-001.azurewebsites.net/"
+        url = f"{os.getenv("CALLBACK_URI_HOST")}/api/ticket/{arguments['ticket_id']}"
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
 
         message = response.text
         return message
+
+    async def create_ticket_function(self, arguments):
+        """Execute the create_ticket function"""
+        url = f"{os.getenv("CALLBACK_URI_HOST")}/api/ticket"
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=arguments)
+
+        message = response.text
+        return message
+
+    async def end_call_function(self, arguments):
+        """Execute the end_call function"""
+        try:
+            url = f"{os.getenv("CALLBACK_URI_HOST")}/api/endCall"
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url)
+
+            if response.status_code == 200:
+                return "Call ended successfully. Thank you for calling!"
+            else:
+                return "Failed to end call. Please try again."
+        except Exception as e:
+            print(f"Error ending call: {e}")
+            return "Failed to end call due to an error."

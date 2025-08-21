@@ -30,6 +30,8 @@ logger = logging.getLogger("uvicorn.error")
 acs_client = CallAutomationClient.from_connection_string(ACS_CONNECTION_STRING)
 app = FastAPI()
 
+active_call_connection_id = None
+
 
 @app.post("/api/incomingCall")
 async def incoming_call_handler(request: Request) -> Response:
@@ -88,6 +90,7 @@ async def incoming_call_handler(request: Request) -> Response:
 
 @app.post("/api/callbacks/{contextId}")
 async def callbacks(contextId: str, request: Request) -> Response:  # noqa: N803
+    global active_call_connection_id
     events = await request.json()
     if isinstance(events, dict):
         events = [events]
@@ -100,6 +103,7 @@ async def callbacks(contextId: str, request: Request) -> Response:  # noqa: N803
             f"Received Event:-> {event['type']}, Correlation Id:-> {event_data['correlationId']}, CallConnectionId:-> {call_connection_id}"
         )
         if event["type"] == "Microsoft.Communication.CallConnected":
+            active_call_connection_id = call_connection_id
             call_connection_properties = (
                 await acs_client.get_call_connection(call_connection_id).get_call_properties()
             )
@@ -138,7 +142,8 @@ async def callbacks(contextId: str, request: Request) -> Response:  # noqa: N803
             )
             logger.info(f"Message:->{event_data['resultInformation']['message']}")
         elif event["type"] == "Microsoft.Communication.CallDisconnected":
-            pass
+            active_call_connection_id = None
+            logger.info("Call disconnected, clearing active call connection ID")
     return Response(status_code=200)
 
 
@@ -164,3 +169,46 @@ async def ws(websocket: WebSocket) -> None:
 @app.get("/")
 async def home() -> PlainTextResponse:
     return PlainTextResponse("Hello ACS CallAutomation!")
+
+
+# End call
+@app.post("/api/endCall")
+async def end_call() -> JSONResponse:
+    global active_call_connection_id
+    logger.info(f"End call requested for connection ID: {active_call_connection_id}")
+    
+    if not active_call_connection_id:
+        return JSONResponse(status_code=400, content={"error": "No active call to end"})
+    
+    try:
+        call_connection = acs_client.get_call_connection(active_call_connection_id)
+        await call_connection.hang_up(is_for_everyone=True)
+        
+        logger.info(f"Successfully ended call with connection ID: {active_call_connection_id}")
+        active_call_connection_id = None
+        
+        return JSONResponse(status_code=200, content={"message": "Call ended successfully"})
+        
+    except Exception as e:
+        logger.error(f"Error ending call: {e}")
+        return JSONResponse(status_code=500, content={"error": f"Failed to end call: {str(e)}"})
+
+
+# Demo APIs
+# Get ticket
+@app.get("/api/ticket/{ticket_id}")
+async def get_ticket(ticket_id: str) -> JSONResponse:
+    print(f"Getting ticket: {ticket_id}")
+    if ticket_id == "123":
+        print("Ticket found")
+        return JSONResponse(status_code=200, content={"ticket_id": ticket_id, "status": "open", "description": "What is the property rate for the property 123?"})
+    else:
+        return JSONResponse(status_code=404, content={"error": "Ticket not found"})
+
+# Create ticket
+@app.post("/api/ticket")
+async def create_ticket(request: Request) -> JSONResponse:
+    data = await request.json()
+    logger.info(f"Creating ticket: {data}")
+    return JSONResponse(status_code=200, content={"ticket_id": "124", "status": "open", "description": data["description"]})
+
