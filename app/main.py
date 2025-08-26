@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.websockets import WebSocketDisconnect
 from azure.eventgrid import EventGridEvent, SystemEventNames
@@ -32,6 +33,12 @@ app = FastAPI()
 
 active_call_connection_id = None
 
+cors = CORSMiddleware(
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/api/incomingCall")
 async def incoming_call_handler(request: Request) -> Response:
