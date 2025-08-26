@@ -31,14 +31,16 @@ logger = logging.getLogger("uvicorn.error")
 acs_client = CallAutomationClient.from_connection_string(ACS_CONNECTION_STRING)
 app = FastAPI()
 
-active_call_connection_id = None
-
-cors = CORSMiddleware(
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+active_call_connection_id = None
 
 @app.post("/api/incomingCall")
 async def incoming_call_handler(request: Request) -> Response:
